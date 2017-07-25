@@ -3,9 +3,10 @@ package jwttransform
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+
 	"github.com/mholt/caddy"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
-	"net/http"
 )
 
 // JWTTransform ...
@@ -14,13 +15,38 @@ type JWTTransform struct {
 	Upstream string
 }
 
+type Config struct {
+	UpstreamURL string
+}
+
 type Target struct {
-	Token string `json:"token"`
-	Type  string `json:"type"`
+	Token     string            `json:"token"`
+	TokenType string            `json:"token_type"`
+	TokenExp  int               `json:"token_exp"`
+	Headers   map[string]string `json:"headers"`
+}
+
+func parseConfig(c *caddy.Controller) Config {
+
+	// var upstream string
+
+	conf := Config{}
+
+	for c.Next() {
+		token := c.Val()
+		args := c.RemainingArgs()
+
+		switch token {
+		case "upstream":
+			conf.UpstreamURL = args[0]
+		}
+
+	}
+
+	return conf
 }
 
 func (t JWTTransform) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
-	fmt.Println("Hello from Middleware")
 
 	resp, err := http.Get(t.Upstream)
 	if err != nil {
@@ -33,6 +59,7 @@ func (t JWTTransform) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 
 	json.NewDecoder(resp.Body).Decode(&target)
 	auth := r.Header.Get("Authorization")
+
 	if auth != "" {
 		r.Header.Set("Authorization", "FOOBAR BARFOO")
 	}
@@ -41,19 +68,13 @@ func (t JWTTransform) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, er
 }
 
 func setup(c *caddy.Controller) error {
-	fmt.Println("JWTTransform Setup")
+
 	cfg := httpserver.GetConfig(c)
 
-	var upstream string
-
-	for c.Next() {
-		for c.NextBlock() {
-			upstream = c.Val()
-		}
-	}
+	config := parseConfig(c)
 
 	cfg.AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
-		return JWTTransform{Next: next, Upstream: upstream}
+		return JWTTransform{Next: next, Upstream: config.UpstreamURL}
 	})
 	return nil
 }
